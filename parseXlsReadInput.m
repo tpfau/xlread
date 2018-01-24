@@ -28,7 +28,6 @@ while varargpos <= numel(varargin)
             sheetDone = true;
         else %its not numeric, and looks like a x1Range
             x1Range = carg;
-            rangeDone = true;
             %We did not yet parse the sheet, but got a range -> only range
             %provided.
             break;
@@ -36,6 +35,7 @@ while varargpos <= numel(varargin)
     else %if sheet is done, we got a second argument, which has to be range.
         if ~rangeDone
             x1Range = carg;
+            rangeDone = true;
         else
             basic = strcmp('basic',carg);
             basicDone = true;

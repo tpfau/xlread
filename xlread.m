@@ -1,8 +1,12 @@
 function [num,txt,raw,costum] = xlread(filename,varargin)
 % XLREAD reads a microsoft xls or xlsx file using the POI library.
 %   The syntax is the same as xlsread from Matlab 2017b
-% processFcn only supports the Value and Count fields of the Data object
+
+% processFcn supports the Value and Count fields of the Data object
 %            otherwise passed in to the function. 
+%            In addition the input structs "WorkSheet" field contains the
+%            selected worksheet from the XLSFile in POI format.
+%
 %==============================================================================
 % Author: Thomas Pfau Jan 2018
 
@@ -14,11 +18,16 @@ end
 
 % Import required POI Java Classes
 import org.apache.poi.ss.usermodel.*;
-
+import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.ss.usermodel.*;
+import java.text.SimpleDateFormat;
 [sheet,range,processFcn,basic] = parseXlsReadInput(varargin{:});
 
 % Open a file
 xlsFile = java.io.File(filename);
+%And get the extension.
+[~,~,extension] = fileparts(filename);
+
 num = [];
 txt = {};
 raw = {};
@@ -71,9 +80,16 @@ if isempty(range)
     iColEnd = inf;
     %We will read everything.
 else
+    if strfind(range,':')
+        ranges = strsplit(range,':');
+        cellStart = ranges{1};
+        cellEnd = ranges{2};
+    else
+        cellStart = range;  
+        cellEnd = range;    
+    end
     % Define start & end cell
-    cellStart = range(1:iSeperator-1);
-    cellEnd = range(iSeperator+1:end);
+    
     
     % Create a helper to get the row and column
     cellStart = CellReference(cellStart);
@@ -100,7 +116,6 @@ numCols = min(selCols,numCols);
 numRows = min(selRows,xlsSheet.getLastRowNum()+1);
 
 raw = cell(numRows,numCols);
-%raw(:) = {NaN}; %Default is NaN.
 
 % Iterate over all data
 for iRow = iRowStart:min(iRowEnd)
@@ -113,9 +128,17 @@ for iRow = iRowStart:min(iRowEnd)
         if ~isempty(currentCell) %No information, pass
             switch currentCell.getCellType()
                 case {currentCell.CELL_TYPE_NUMERIC,currentCell.CELL_TYPE_BOOLEAN}
-                    raw{iRow+1,iCol+1} = currentCell.getNumericCellValue();
+                    if ~basic && DateUtil.isCellDateFormatted(currentCell)                        
+                        sdf = SimpleDateFormat('d/M/yyyy');
+                        formattedDate = sdf.format(currentCell.getDateCellValue());
+                        raw{iRow+1,iCol+1} = char(formattedDate);
+                    else
+                        raw{iRow+1,iCol+1} = currentCell.getNumericCellValue();
+                    end
                 case currentCell.CELL_TYPE_STRING
                     raw{iRow+1,iCol+1} = char(currentCell.getStringCellValue());
+                case currentCell.CELL_TYPE_ERROR
+                    raw{iRow+1,iCol+1} = currentCell;
                 case currentCell.CELL_TYPE_FORMULA
                     %This is a bit more interesting.
                     switch currentCell.getCachedFormulaResultType
@@ -123,7 +146,17 @@ for iRow = iRowStart:min(iRowEnd)
                             raw{iRow+1,iCol+1} = char(currentCell.getStringCellValue());
                         case {currentCell.CELL_TYPE_NUMERIC,currentCell.CELL_TYPE_BOOLEAN}
                             raw{iRow+1,iCol+1} = double(currentCell.getNumericCellValue());
+                        case currentCell.CELL_TYPE_ERROR
+                            if basic 
+                                if ~strcmpi(extension,'.xls')
+                                    raw{iRow+1,iCol+1} = char(currentCell.getErrorCellString());
+                                end
+                            else
+                                raw{iRow+1,iCol+1} = 'ActiveX VT_ERROR: ';
+                            end                            
+                                
                     end
+                    
             end
         end
     end
@@ -132,9 +165,19 @@ end
 %Anything that is empty, will become NaN.
 raw(cellfun(@isempty, raw)) = {NaN};
 
-if ~isempty(processFcn)
+if ~basic
+else
+    if strcmpi(filename,'.xls')
+        raw(cellfun(@islogical,raw)) = {NaN};
+    else
+        raw(cellfun(@islogical,raw)) = {'#N/A:'};
+    end
+end
+
+if ~isempty(processFcn)   
     Data.Value = raw;
-    Data.Count = numel(raw);    
+    Data.Count = numel(raw);   
+    Data.WorkSheet = xlsSheet;
     try
         [raw,costum] = processFcn(Data);
     catch %probably not two outputs...
@@ -143,9 +186,14 @@ if ~isempty(processFcn)
 end
 
 [x,y] = find(cellfun(@(x) ischar(x) && ~isempty(x),raw));
-xmin = min(x);
+if strcmp(extension,'.xls')
+    xmin = 1;
+    ymin = 1;
+else
+    xmin = min(x);
+    ymin = min(y);
+end
 xmax = max(x);
-ymin = min(y);
 ymax = max(y);
 txt = raw(xmin:xmax,ymin:ymax);
 txt(cellfun(@(x) ~ischar(x) | isempty(x),txt)) = {''};
