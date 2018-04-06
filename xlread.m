@@ -18,9 +18,9 @@ end
 
 % Import required POI Java Classes
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.ss.util.CellReference;
+import org.apache.poi.ss.util.*;
 import org.apache.poi.ss.usermodel.*;
-import java.text.SimpleDateFormat;
+import java.text.*;
 [sheet,range,processFcn,basic] = parseXlsReadInput(varargin{:});
 
 % Open a file
